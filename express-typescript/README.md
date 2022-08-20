@@ -364,3 +364,224 @@ export default class PingController {
 ```
 
 모든 변경을 수행하고 서버를 실행후 http://localhost:8000/docs/를 방문하면 API문서를 볼 수 있다.
+
+---
+
+# Building REST API with Express, TypeScript - Part 2: Docker Setup
+
+## Why Docker
+
+Docker는 새로운 기기에 개발환경을 쉽게 설정할 수 있다. 그리고 프로젝트별로 격리시켜 프로젝트별로 종속성 문제가 발생하지 않는다.
+
+## Write Dockerfile
+
+Dockerfile의 각 라인은 명령이고, 고유한 새 이미지 계층을 생성한다.  
+Docker는 빌드 중에 이미지를 캐시하므로, 모든 재구성은 마지막 빌드에서 변경된 새 계층만 생성한다. 이러한 동작 로직은 빌드 시간을 줄이는데 중요한 역할을 한다.
+
+- 서버용 Dockerfile 작성
+    - `node:12`를 기본 도커 이미지로 사용
+    - package.json을 복사하고, `npm install`을 수행한 후 다른 파일을 복사한다.
+    - Docker는 빌드 중에 이 두 단계의 이미지를 캐시후 재사용한다.
+- 도커 이미지로 개발 서버를 실행할 것이므로 `npm run dev` 커맨드를 제공해야 한다.
+
+```dockerfile
+# Dockerfile
+
+FROM node:12
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["npm", "run", "dev"]
+```
+
+COPY 중 일부 파일을 무시하기 위해 .dockerignore를 추가한다.
+
+```
+# .dockerignore
+
+node_modules
+npm-debug.log
+```
+
+docker 이미지를 빌드한다.
+- 이미지 이름은 express-ts로 정한다.
+
+```
+docker build -t express-ts .
+```
+
+`docker images`으로 빌드된 docker 이미지를 확인할 수 있다.
+
+```
+docker images
+REPOSITORY                        TAG                 IMAGE ID            CREATED             SIZE
+express-ts                        latest              d0ce1e38958b        2 minutes ago       1.11GB
+```
+
+`docker run`으로 컨테이너를 실행한다. 8000번 포트에 매핑한다.
+http://localhost:8000/ping을 방문하면 서버 실행을 확인할 수 있다.
+
+```
+docker run -p 8000:8000 express-ts
+```
+
+## Add Docker Compose
+
+Docker 컨테이너 내부의 nodemon은 로컬의 src 폴더를 볼 수 없기에, 개발 서버가 Docker 내부에서 `docker build`를 해야 한다.
+로컬의 src 폴더를 Docker 컨테이너에서 마운트하여 컨테이너 내부의 nodemon이 소스 변경을 인지 및 개발 서버를 재시작한다.
+
+- docker-compose.yml을 프로젝트 루트에 추가하여 src 폴더를 마운트한다.
+
+```yml
+# docker-compose.yml
+
+version: "3"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./src:/app/src
+    ports:
+      - "8000:8000"
+```
+
+- `docker-compose up`으로 서버를 실행한다.
+    - 이제 컨테이너의 서버는 코드 변경되면 서버를 재시작한다.
+
+```
+docker-compose up
+```
+
+- Dockerfile을 Dockerfile.dev로 변경하고, docker-compose.yml도 업데이트 하자.(개발이미지 분리)
+
+```
+mv Dockerfile Dockerfile.dev
+```
+
+```yml
+# docker-compose.yml
+
+version: "3"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./src:/app/src
+    ports:
+      - "8000:8000"
+```
+
+## Add Production Dockerfile
+
+프로덕션 서버용 도커 이미지 빌드를 하자.  
+- 새로운 Dockerfile을 생성
+- JS을 복사 / 빌드 후 `npm start` 커맨드를 실행해야 한다.
+
+```
+FROM node:12
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+RUN npm run build
+
+EXPOSE 8000
+
+CMD ["node", "start"]
+```
+
+- `docker build` 를 실행후 프로덕션 서버용 도커 이미지 생성을 확인할 수 있다.
+    - 빌드 중 `Cannot find module 'multer' or its corresponding type declarations.`를 만난다면
+    - `npm i -D @types/multer` 로 package.json 을 업데이트 후 빌드하면 됨
+
+```
+docker images
+REPOSITORY                      TAG                 IMAGE ID            CREATED             SIZE
+express-ts                      latest              d0ce1e38958b        2 minutes ago       1.11GB
+```
+
+- node:12를 alpine 이미지로 교체한다. 알파인 리눅스는 매우 가볍다.
+
+```
+FROM node:12-alpine
+```
+
+```
+docker build -t express-ts/alpine .
+```
+
+빌드된 이미지를 보면 용량이 크게 줄어든 것을 알 수 있다.
+
+```
+docker images
+REPOSITORY                       TAG                 IMAGE ID            CREATED             SIZE
+express-ts                       alpine              2b06fcba880e        46 seconds ago      280MB
+express-ts                       latest              d0ce1e38958b        2 minutes ago       1.11GB
+```
+
+프로덕션 빌드에는 dev 종속성이 있고, 프로덕션 환경에서 서버를 실행하는 동안 필요하지 않은 TS 코드가 있기 때문에 도커 이미지는 아직 완벽하지 않다.
+
+2 단계(서버를 구축하기 위한 단계 / 서버를 실행하기 위한 단계)를 생성한다.  
+빌더 단계에서는 TS 파일을 JS로 컴파일한다. 그후 서버 단계에서 생성된 파일을 빌더 단계에서 서버 단계로 복사한다.
+서버 단계에서는 프로덕션 종속성만 필요하므로 `npm install`에 `--production` 플래그를 추가한다.
+
+```
+FROM node:12-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM node:12-alpine AS server
+WORKDIR /app
+COPY package* ./
+RUN npm install --production
+COPY --from=builder ./app/public ./public
+COPY --from=builder ./app/build ./build
+EXPOSE 8000
+CMD ["npm", "start"]
+```
+
+- 업데이트된 Dockerfile로 이미지를 빌드
+    - ms라는 태그를 지정하여 이전 이미지 크기와 비교한다.
+
+```
+docker build -t express-ts/ms .
+```
+
+```
+docker images
+
+REPOSITORY                       TAG                 IMAGE ID            CREATED             SIZE
+express-ts                       alpine              2b06fcba880e        46 seconds ago      280MB
+express-ts                       latest              d0ce1e38958b        2 minutes ago       1.11GB
+express-ts                       ms                  26b67bfe45b0        9 minutes ago       194MB
+```
+
+---
+
+# Building REST API with Express, TypeScript - Part 3: PostgreSQL and Typeorm
+
+---
+
+# Building REST API with Express, TypeScript - Part 4: Jest and unit testing
