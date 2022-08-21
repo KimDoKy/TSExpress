@@ -1,5 +1,5 @@
 import express from "express";
-import PingController from "../controllers/ping";
+import PingController from "../controllers/ping.controller";
 import UserRouter from "./user.router";
 import PostRouter from "./post.router";
 import CommentRouter from "./comment.router";
