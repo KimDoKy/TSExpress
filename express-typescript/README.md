@@ -1446,3 +1446,932 @@ export default router;
 ---
 
 # Building REST API with Express, TypeScript - Part 4: Jest and unit testing
+
+테스트 프레임워크를 설정하고, 해당 API를 텧스트하기 위한 단위 테스트를 추가한다.
+
+## Why to test?
+
+테스트는 개발 수명 주기의 초기에 버그를 발견하는데 도움이 되며, 개발자가 새로운 변경사항에 대한 두려움을 없애줄 수 있다.
+
+## Unit Testing
+
+단위 테스트에서는 응용 프로그램의 단위를 격리하여 테스트한다.
+단위는 클래스, 함수, 메서드 등과 같을 수 있다.
+단위 테스트는 테스트를 설정하고 작성하는데 최소한의 노력이 필요하다.
+단위 테스트는 함수/메서드에 대한 자체 문서 역할도 겸한다.
+또한 개발자가 전체 앱 대신 응용 프로그램의 한 부분에 집중 할 수 있게 하기 위한 디버깅에 도움이 된다.
+
+## Setup Jest
+
+JS 테스트 프레임워크 중 Jest를 사용할 것이다.
+
+- jest를 dev 종속으로 설치한다.
+
+```
+npm i -D jest @types/jest
+```
+
+package.json에 test 커맨드를 설정한다.
+
+```json
+# package.json
+
+  "scripts": {
+    ...
+    "test": "jest"
+  },
+```
+
+jest 설정이 잘 작동하는지 확인하기 위한 더미 테스트를 추가한다.
+
+```typescript
+# src/controllers/ping.controller.test.ts
+
+test("it should pass", async () => {
+  expect(true).toBe(false);
+});
+```
+
+```
+npm test
+```
+
+결과는 실패해야 한다. false를 true로 변경하고 다시 실행하면 통과해야 한다.
+
+ping 컨트롤러에 대한 테스트를 추가하자.
+- `getMessage` 메서드를 반환해야 한다.
+
+```typescript
+src/controllers/ping.controller.test.ts
+
+import PingController from "./ping.controller";
+
+test("should return pong message", async () => {
+  const controller = new PingController();
+  const response = await controller.getMessage();
+  expect(response.message).toBe("pong");
+});
+```
+
+```
+npm test
+```
+
+`test` 커맨드를 실행 한 후 테스트에서 ts 파일을 가져오기 때문에 테스트는 실패한다.
+`ts-jest`를 dev 종속으로 설치하고, ts-jest의 `config:init` 명령으로 jest 구성 파일을 생성 후 테스트를 재실행하자.
+
+```
+npm i -D ts-jest
+npx ts-jest config:init
+npm test
+```
+
+`ts-jest`의 `config:init` 명령은 jest.config.js 파일을 프로젝트 루트에 추가하고 명령을 실행 후 테스트를 통과한다.
+
+## Add Tests
+
+user controller 부터 시작하자.
+- user.controller.test.ts 파일을 생성한다.
+  - `describe` 블록으로 테스트를 그룹화한다.
+  - `UserREpository`를 mock한다.
+    - 단위 테스트에서 단위(함수/메서드)만 테스트하고 종속성을 mock하는 것이 더 낫다.
+    - 종속성을 mock하면 개발자가 종속성의 동작을 mock하고, 실제 종속성이 꼬이지 않게 여러 엣지 케이스를 테스트할 수 있기에, 더 많은 제어가 가능하다.
+  - 데이터베이스를 설정하지 않고, `UserRepository.getUsers` 메서드의 반환 값을 테스트케이스로 변경한다.
+
+```typescript
+# src/controllers/user.controller.test.ts
+
+import UserController from "./user.controller";
+import * as UserRepository from "../repositories/user.repository";
+
+describe("UserController", () => {
+  describe("getUsers", () => {
+    test("should return empty array", async () => {
+      const spy = jest
+        .spyOn(UserRepository, "getUsers")
+        .mockResolvedValueOnce([]);
+      const controller = new UserController();
+      const users = await controller.getUsers();
+      expect(users).toEqual([]);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    });
+  });
+});
+```
+
+`UserRepository.getUsers`의 스파이를 만들고 빈 배열로 해결될 promise을 반환하도록 구현을 변경한다. 이러면 데이터베이스에서 빈 목록의 조건을 다시 만드는데 도움이 되며, 메서드의 동작이 무엇인지 쉽게 테스트할 수 있다.
+
+스파이에서 원래 메서드를 mock 함수로 대체하고, 필요에 따라 값을 반환하도록 구현을 변경한다. 이는 개발자가 수동 테스트에서 수행하기 어려운 부분의 엣지 케이스를 재현하고 테스트하는데 도움이 된다. 테스트를 실행후 스파이 기능은 원래대로 복원한다.
+
+목록이 비어있지 않은 조건을 테스트해보자. 이 메서드는 목록에 있는 그대로 반환해야 한다.
+- 더미 목록 데이터를 만들고, `UserRepository.getUsers` 메서드를 구현을 변경한다.
+
+```typescript
+# src/controllers/user.controller.test.ts
+
+import UserController from "./user.controller";
+import * as UserRepository from "../repositories/user.repository";
+
+describe("UserController", () => {
+  describe("getUsers", () => {
+    test("should return empty array", async () => {
+      const spy = jest
+        .spyOn(UserRepository, "getUsers")
+        .mockResolvedValueOnce([]);
+      const controller = new UserController();
+      const users = await controller.getUsers();
+      expect(users).toEqual([]);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    });
+
+    test("should return user list", async () => {
+      const usersList = [
+        {
+          id: 1,
+          firstName: "firstName",
+          lastName: "lastName",
+          email: "email@example.com",
+          posts: [],
+          comments: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+      const spy = jest
+        .spyOn(UserRepository, "getUsers")
+        .mockResolvedValueOnce(usersList);
+      const controller = new UserController();
+      const users = await controller.getUsers();
+      expect(users).toEqual(usersList);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    });
+  });
+});
+```
+
+테스트용 더미 데이터를 생성하는 라이브러리를 추가한다. `faker`를 사용하여 가짜 데이터를 생성하고 가짜 데이터를 테스트 유틸에서 실제 데이터로 구성한다.
+모든 유틸과 설정 파일을 보관하는 루트 디렉터리에 `test` 폴더를 생성한다.
+
+```
+npm i -D faker @types/faker
+```
+
+```typescript
+# test/utils/generate.ts
+
+import faker from "faker";
+
+export function generateUserData(overide = {}) {
+  return {
+    id: faker.random.number(),
+    firstName: faker.name.firstName(),
+    lastName: faker.name.lastName(),
+    email: faker.internet.email(),
+    posts: [],
+    comments: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overide,
+  };
+}
+
+export function generateUsersData(n: number = 1, overide = {}) {
+  return Array.from(
+    {
+      length: n,
+    },
+    (_, i) => {
+      return generateUserData({ id: i, ...overide });
+    }
+  );
+}
+```
+
+`generateUserData`는 가짜 사용자 데이터베이스 객체를 생성하고 반환할 것이다. 추가 매개변수를 전달하여 이러한 가짜 개체를 재정의할 수 있다.
+
+`test` 폴더에 절대 경로를 지정하여 테스트의 어디에서나 유틸을 쉽게 가져오도록 해야 한다. 또한 prod 서버 코드에 테스트 파일이 포함할 필요가 없기에 빌드 파일에서 테스트 파일을 제외해야 한다.
+
+```json
+# tsconfig.json
+
+{
+  "compilerOptions": {
+   ...
+    "baseUrl": "./",
+    "paths": {
+      "test/*": ["test/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude" : ["src/**/*.test.ts"]
+}
+```
+
+```json
+# jest.config.js
+
+module.exports = {
+  preset: "ts-jest",
+  testEnvironment: "node",
+  moduleNameMapper: {
+    "test/(.*)": "<rootDir>/test/$1",
+  },
+};
+```
+
+- 더미 목록 데이터를 `generateUser` 가짜 데이터로 바꾼다. 
+  - 모든 테스트 후에 `spy.mockRestore`를 호출하는 대신 
+  - 모든 테스트 후에 모든 모의를 재설정하는 `afterEach`에서 `jest.resetAllMocks`를 호출한다.
+
+```typescript
+# src/controllers/user.controller.test.ts
+
+import UserController from "./user.controller";
+import * as UserRepository from "../repositories/user.repository";
+import { generateUsers } from "test/utils/generate";
+
+afterEach(() => {
+  jest.resetAllMocks();
+});
+
+describe("UserController", () => {
+  describe("getUsers", () => {
+    test("should return empty array", async () => {
+      const spy = jest
+        .spyOn(UserRepository, "getUsers")
+        .mockResolvedValueOnce([]);
+      const controller = new UserController();
+      const users = await controller.getUsers();
+      expect(users).toEqual([]);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    test("should return user list", async () => {
+      const usersData = generateUsersData(2);
+      const spy = jest
+        .spyOn(UserRepository, "getUsers")
+        .mockResolvedValueOnce(usersData);
+      const controller = new UserController();
+      const users = await controller.getUsers();
+      expect(users).toEqual(usersData);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+```
+
+- User 컨트롤러의 `addUser`, `getUser` 메서드에 대한 테스트 추가
+  - `addUser`의 경우 테스트용 가짜 데이터 생성하기 위한 유틸리티 메서드가 필요하다.
+    - 테스트 케이스에 따라 repository를 mock하고, 예상 결과로 컨트롤러 메서드의 출력만 확인하면 된다.
+  - spy 함수에 대한 호출 및 인수도 확인해야 한다.(필수는 아님)
+
+```typescript
+# test/utils/generate.ts
+
+import faker from 'faker'
+
+...
+
+export function generateUserPayload() {
+  return {
+    firstName: faker.name.firstName(),
+    lastName: faker.name.lastName(),
+    email: faker.internet.email(),
+  }
+}
+```
+
+```typescript
+# src/controllers/user.controller.test.ts
+
+import UserController from "./user.controller";
+import * as UserRepository from "../repositories/user.repository";
+import {
+  generateUsersData,
+  generateUserPayload,
+  generateUserData,
+} from "test/utils/generate";
+
+afterEach(() => {
+  jest.resetAllMocks();
+});
+
+describe("UserController", () => {
+  describe("getUsers", () => {
+    test("should return empty array", async () => {
+      const spy = jest
+        .spyOn(UserRepository, "getUsers")
+        .mockResolvedValueOnce([]);
+      const controller = new UserController();
+      const users = await controller.getUsers();
+      expect(users).toEqual([]);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    test("should return user list", async () => {
+      const usersData = generateUsersData(2);
+      const spy = jest
+        .spyOn(UserRepository, "getUsers")
+        .mockResolvedValueOnce(usersData);
+      const controller = new UserController();
+      const users = await controller.getUsers();
+      expect(users).toEqual(usersData);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("addUser", () => {
+    test("should add user to the database", async () => {
+      const payload = generateUserPayload();
+      const userData = generateUserData(payload);
+      const spy = jest
+        .spyOn(UserRepository, "createUser")
+        .mockResolvedValueOnce(userData);
+      const controller = new UserController();
+      const user = await controller.createUser(payload);
+      expect(user).toMatchObject(payload);
+      expect(user).toEqual(userData);
+      expect(spy).toHaveBeenCalledWith(payload);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("getUser ", () => {
+    test("should return user from the database", async () => {
+      const id = 1;
+      const userData = generateUserData({ id });
+      const spy = jest
+        .spyOn(UserRepository, "getUser")
+        .mockResolvedValueOnce(userData);
+      const controller = new UserController();
+      const user = await controller.getUser(id.toString());
+      expect(user).toEqual(userData);
+      expect(user?.id).toBe(id);
+      expect(spy).toHaveBeenCalledWith(id);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    test("should return null if user not found", async () => {
+      const id = 1;
+      const spy = jest
+        .spyOn(UserRepository, "getUser")
+        .mockResolvedValueOnce(null);
+      const controller = new UserController();
+      const user = await controller.getUser(id.toString());
+      expect(user).toBeNull();
+      expect(spy).toHaveBeenCalledWith(id);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+```
+
+이제 Post, Comment 컨트롤러에 대한 테스트를 추가하자.
+User 컨트롤러 테스트와 거의 비슷하기 떄문에 복붙 후 값과 변수를 업데이트하는 편이 비용이 적다.
+
+우선 Post 테스트를 위한 가짜 데이터 생성 유틸리티 함수를 추가해야 한다.
+
+```typescript
+# test/utils/generate.ts
+
+import faker from "faker";
+import { User } from "../../src/models";
+
+...
+
+export function generatePostData(overide = {}) {
+  return {
+    id: faker.random.number(),
+    title: faker.lorem.sentence(),
+    content: faker.lorem.paragraph(),
+    userId: faker.random.number(),
+    comments: [],
+    user: new User(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overide,
+  };
+}
+
+export function generatePostsData(n: number = 1, overide = {}) {
+  return Array.from(
+    {
+      length: n,
+    },
+    (_, i) => {
+      return generatePostData({ id: i, ...overide });
+    }
+  );
+}
+
+export function generatePostPayload() {
+  return {
+    title: faker.lorem.sentence(),
+    content: faker.lorem.paragraph(),
+    userId: faker.random.number(),
+  };
+}
+```
+
+- post.controller.test.ts 파일을 생성한다.
+  - describe 블록을 사용하여 메서드 테스트를 그룹화한다.
+  - `PostRepository`를 mock 해야 한다.
+
+```typescript
+# src/controllers/post.controller.test.ts
+
+import PostController from "./post.controller";
+import * as PostRepository from "../repositories/post.repository";
+import {
+  generatePostsData,
+  generatePostPayload,
+  generatePostData,
+} from "test/utils/generate";
+
+afterEach(() => {
+  jest.resetAllMocks();
+});
+
+describe("PostController", () => {
+  describe("getPosts", () => {
+    test("should return empty array", async () => {
+      const spy = jest
+        .spyOn(PostRepository, "getPosts")
+        .mockResolvedValueOnce([]);
+      const controller = new PostController();
+      const posts = await controller.getPosts();
+      expect(posts).toEqual([]);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    test("should return posts list", async () => {
+      const postsData = generatePostsData(2);
+      const spy = jest
+        .spyOn(PostRepository, "getPosts")
+        .mockResolvedValueOnce(postsData);
+      const controller = new PostController();
+      const posts = await controller.getPosts();
+      expect(posts).toEqual(postsData);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("createPost", () => {
+    test("should add post to the database", async () => {
+      const payload = generatePostPayload();
+      const postData = generatePostData(payload);
+      const spy = jest
+        .spyOn(PostRepository, "createPost")
+        .mockResolvedValueOnce(postData);
+      const controller = new PostController();
+      const post = await controller.createPost(payload);
+      expect(post).toMatchObject(payload);
+      expect(post).toEqual(postData);
+      expect(spy).toHaveBeenCalledWith(payload);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("getPost", () => {
+    test("should return post from the database", async () => {
+      const id = 1;
+      const postData = generatePostData({ id });
+      const spy = jest
+        .spyOn(PostRepository, "getPost")
+        .mockResolvedValueOnce(postData);
+      const controller = new PostController();
+      const post = await controller.getPost(id.toString());
+      expect(post).toEqual(postData);
+      expect(post?.id).toBe(id);
+      expect(spy).toHaveBeenCalledWith(id);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    test("should return null if post not found", async () => {
+      const id = 1;
+      const spy = jest
+        .spyOn(PostRepository, "getPost")
+        .mockResolvedValueOnce(null);
+      const controller = new PostController();
+      const post = await controller.getPost(id.toString());
+      expect(post).toBeNull();
+      expect(spy).toHaveBeenCalledWith(id);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+```
+
+- `npm test`를 실행하면 Post 컨트롤러 테스트를 확인할 수 있다.
+- Comment 컨트롤러 테스트도 동일하게 작업하자.
+
+```typescript
+# test/utils/generate.ts
+
+import faker from 'faker'
+import { User, Post } from '../../src/models';
+
+...
+
+export function generateCommentData(overide = {}) {
+  return {
+    id: faker.random.number(),
+    content: faker.lorem.paragraph(),
+    userId: faker.random.number(),
+    user: new User(),
+    postId: faker.random.number(),
+    post: new Post(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overide,
+  };
+}
+
+export function generateCommentsData(n: number = 1, overide = {}) {
+  return Array.from(
+    {
+      length: n,
+    },
+    (_, i) => {
+      return generateCommentData(overide);
+    }
+  );
+}
+
+export function generateCommentPayload() {
+  return {
+    content: faker.lorem.paragraph(),
+    userId: faker.random.number(),
+    postId: faker.random.number(),
+  };
+}
+```
+
+```typescript
+# src/controllers/comment.controller.test.ts
+
+import CommentController from "./comment.controller";
+import * as CommentRepository from "../repositories/comment.repository";
+import {
+  generateCommentsData,
+  generateCommentPayload,
+  generateCommentData,
+} from "test/utils/generate";
+
+afterEach(() => {
+  jest.resetAllMocks();
+});
+
+describe("CommentController", () => {
+  describe("getComments", () => {
+    test("should return empty array", async () => {
+      const spy = jest
+        .spyOn(CommentRepository, "getComments")
+        .mockResolvedValueOnce([]);
+      const controller = new CommentController();
+      const comments = await controller.getComments();
+      expect(comments).toEqual([]);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    test("should return comments list", async () => {
+      const commentsData = generateCommentsData(2);
+      const spy = jest
+        .spyOn(CommentRepository, "getComments")
+        .mockResolvedValueOnce(commentsData);
+      const controller = new CommentController();
+      const comments = await controller.getComments();
+      expect(comments).toEqual(commentsData);
+      expect(spy).toHaveBeenCalledWith();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("createComment", () => {
+    test("should add comment to the database", async () => {
+      const payload = generateCommentPayload();
+      const commentData = generateCommentData(payload);
+      const spy = jest
+        .spyOn(CommentRepository, "createComment")
+        .mockResolvedValueOnce(commentData);
+      const controller = new CommentController();
+      const comment = await controller.createComment(payload);
+      expect(comment).toMatchObject(payload);
+      expect(comment).toEqual(commentData);
+      expect(spy).toHaveBeenCalledWith(payload);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("getComment", () => {
+    test("should return comment from the database", async () => {
+      const id = 1;
+      const commentData = generateCommentData({ id });
+      const spy = jest
+        .spyOn(CommentRepository, "getComment")
+        .mockResolvedValueOnce(commentData);
+      const controller = new CommentController();
+      const comment = await controller.getComment(id.toString());
+      expect(comment).toEqual(commentData);
+      expect(comment?.id).toBe(id);
+      expect(spy).toHaveBeenCalledWith(id);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    test("should return null if comment not found", async () => {
+      const id = 1;
+      const spy = jest
+        .spyOn(CommentRepository, "getComment")
+        .mockResolvedValueOnce(null);
+      const controller = new CommentController();
+      const comment = await controller.getComment(id.toString());
+      expect(comment).toBeNull();
+      expect(spy).toHaveBeenCalledWith(id);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+```
+
+## Coverage
+
+테스트 커버리지를 수집한다.
+jest는 다른 라이브러리 필요 없이 `coverage` 옵션만 추가하면 된다.
+
+```
+npm run test --coverage
+```
+
+cli를 통해 인수를 전달하는 것보다는 jest 설정파일에 coverage를 활성화하는 것이 좋다.
+jest는 기본으로 테스트 케이스에 포함된 파일의 범위만 수집한다.
+소스 코드에 glob 패턴을 전달하여 이 동작을 재정의하고 모든 파일에서 coverage를 수집할 수 있다.
+
+```json
+# jest.config.js
+
+module.exports = {
+  preset: "ts-jest",
+  testEnvironment: "node",
+  moduleNameMapper: {
+    "test/(.*)": "<rootDir>/test/$1",
+  },
+  collectCoverage: true,
+  collectCoverageFrom: ["src/**/*.{js,ts}"],
+};
+```
+
+적용후 테스트를 실행하면 coverage는 양호하지만, 아직 적용되지 않은 파일이 있음을 알 수 있다.
+
+## More Tests
+
+repository에 대한 테스트를 추가해야 한다.
+repository는 `typeorm`과 같은 타사 라이브러리에 대한 종속성이 있다.
+단위 테스트처럼 데이터베이스 및 타사 라이브러리와 같은 외부 종속성은 없는 것이 이상적이다.
+그래서 `typeorm`을 mock하여 데이터베이스를 설정하지 않고 repository 로직을 테스트할 것이다.
+
+- user.repository.test.ts를 추가한다.
+  - 전체 모듈을 mock해야 한다.
+  - `getRepository` 메서드를 mock한다.
+  - `getUsers` 테스트에서 테스트케이스 요구사항에 따라 `find` 메서드를 mock한다.
+  - `beforeEach`에서 `find` 메서드의 mock 구현을 지운다.
+
+```typescript
+# src/repositories/user.repository.test.ts
+
+import * as UserRepository from "./user.repository";
+import { getRepository } from "typeorm";
+import { mocked } from "ts-jest/utils";
+import { generateUsersData } from "test/utils/generate";
+
+jest.mock("typeorm", () => {
+  return {
+    getRepository: jest.fn().mockReturnValue({
+      find: jest.fn(),
+    }),
+    PrimaryGeneratedColumn: jest.fn(),
+    Column: jest.fn(),
+    Entity: jest.fn(),
+    ManyToOne: jest.fn(),
+    OneToMany: jest.fn(),
+    JoinColumn: jest.fn(),
+    CreateDateColumn: jest.fn(),
+    UpdateDateColumn: jest.fn(),
+  };
+});
+
+const mockedGetRepo = mocked(getRepository(<jest.Mock>{}));
+beforeEach(() => {
+  mockedGetRepo.find.mockClear();
+});
+
+describe("UserRepository", () => {
+  describe("getUsers", () => {
+    test("should return empty array", async () => {
+      mockedGetRepo.find.mockResolvedValue([]);
+      const users = await UserRepository.getUsers();
+      expect(users).toEqual([]);
+      expect(mockedGetRepo.find).toHaveBeenCalledWith();
+      expect(mockedGetRepo.find).toHaveBeenCalledTimes(1);
+    });
+
+    test("should return user list", async () => {
+      const usersData = generateUsersData(2);
+      mockedGetRepo.find.mockResolvedValue(usersData);
+      const users = await UserRepository.getUsers();
+      expect(users).toEqual(usersData);
+      expect(mockedGetRepo.find).toHaveBeenCalledWith();
+      expect(mockedGetRepo.find).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+```
+
+`addUser` 메서드 테스트를 위해 `save` 메서드를 mock하고, beforeEach에서 mock을 삭제한다.
+
+```typescript
+# src/repositories/user.repository.test.ts
+
+import * as UserRepository from './user.repository'
+import {getRepository} from 'typeorm'
+import { mocked } from 'ts-jest/utils'
+import {generateUsersData, generateUserPayload, generateUserData} from 'test/utils/generate'
+
+jest.mock('typeorm', () => {
+  return {
+    getRepository: jest.fn().mockReturnValue({
+      find: jest.fn(),
+      save: jest.fn()
+    }),
+    ...
+}});
+
+const mockedGetRepo = mocked(getRepository(<jest.Mock>{}))
+beforeEach(() => {
+  mockedGetRepo.find.mockClear()
+  mockedGetRepo.save.mockClear()
+})
+
+describe("UserRepository", () => {
+  ...
+  describe("addUser", () => {
+    test("should add user to the database", async () => {
+      const payload = generateUserPayload()
+      const userData = generateUserData(payload)
+      mockedGetRepo.save.mockResolvedValue(userData)
+      const user = await UserRepository.createUser(payload);
+      expect(user).toMatchObject(payload)
+      expect(user).toEqual(userData)
+      expect(mockedGetRepo.save).toHaveBeenCalledWith(payload)
+      expect(mockedGetRepo.save).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+```
+
+- `getUser`를 테스트하기 위해 `findOne` 메서드를 mock하고, save과 find 때처럼 beforeEach에서 삭제한다.
+
+```typescript
+# src/repositories/user.repository.test.ts
+
+import * as UserRepository from './user.repository'
+import {getRepository} from 'typeorm'
+import { mocked } from 'ts-jest/utils'
+import {generateUsersData, generateUserPayload, generateUserData} from 'test/utils/generate'
+
+jest.mock('typeorm', () => {
+  return {
+    getRepository: jest.fn().mockReturnValue({
+      find: jest.fn(),
+      save: jest.fn(),
+      findOne: jest.fn()
+    }),
+    ...
+}});
+
+const mockedGetRepo = mocked(getRepository(<jest.Mock>{}))
+beforeEach(() => {
+  mockedGetRepo.find.mockClear()
+  mockedGetRepo.findOne.mockClear()
+  mockedGetRepo.save.mockClear()
+})
+
+describe("UserRepository", () => {
+  ...
+  describe("getUser", () => {
+    test("should return user from the database", async () => {
+      const id = 1
+      const userData = generateUserData({id})
+      mockedGetRepo.findOne.mockResolvedValue(userData)
+      const user = await UserRepository.getUser(id)
+      expect(user).toEqual(userData)
+      expect(user?.id).toBe(id)
+      expect(mockedGetRepo.findOne).toHaveBeenCalledWith({id})
+      expect(mockedGetRepo.findOne).toHaveBeenCalledTimes(1)
+    })
+
+    test("should return null if user not found", async () => {
+      const id = 1
+      mockedGetRepo.findOne.mockResolvedValue(null)
+      const user = await UserRepository.getUser(id)
+      expect(user).toBeNull()
+      expect(mockedGetRepo.findOne).toHaveBeenCalledWith({id})
+      expect(mockedGetRepo.findOne).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+```
+
+- `typeorm` 모듈의 mock 구현을 별도의 파일로 이동하자.
+  - 다른 repository 테스트에서도 쉽게 사용할 수 있다.
+  - `__mocks__` 폴더를 만들고 `typeorm.ts` 파일을 생성하자.
+  - typeorm mock 구현을 이 파일로 이동한다.
+  - `__mocks__`는 특수한 폴더로써, jest는 여기에서 mock 항목을 선택한다.
+    - [jest's `__mocks__`](https://jestjs.io/docs/manual-mocks)
+
+```typescript
+# __mocks__/typeorm.ts
+
+module.exports = {
+  getRepository: jest.fn().mockReturnValue({
+    find: jest.fn(),
+    save: jest.fn(),
+    findOne: jest.fn(),
+  }),
+  PrimaryGeneratedColumn: jest.fn(),
+  Column: jest.fn(),
+  Entity: jest.fn(),
+  ManyToOne: jest.fn(),
+  OneToMany: jest.fn(),
+  JoinColumn: jest.fn(),
+  CreateDateColumn: jest.fn(),
+  UpdateDateColumn: jest.fn(),
+};
+```
+
+user.repository.test.ts에서 `jest.mock("typeorm")`을 호출하면 jest는 자동으로 `__mocks__`에서 구현을 선택한다.
+
+```typescript
+# src/repositories/user.repository.test.ts
+
+import * as UserRepository from "./user.repository";
+import { getRepository } from "typeorm";
+import { mocked } from "ts-jest/utils";
+import {
+  generateUsersData,
+  generateUserPayload,
+  generateUserData,
+} from "test/utils/generate";
+
+jest.mock("typeorm");
+```
+
+Post와 Comment의 repository에 대한 테스트도 추가하자.
+
+## CI Setup
+
+테스트 실행을 위한 Github Actions를 설정한다. push및 pr 이벤트에 대한 테스트 실행을 설정한다.
+`npm ci` 커맨드로 종속성을 설치하고 `npm test` 커맨드를 실행하여 테스트를 실행한다.
+여러 노드 버전에서 테스트를 실행하도록 Github 작업을 설정한다.
+
+```yml
+# .github/workflows/tests.yml
+
+name: Node.js CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [10.x, 12.x, 14.x, 15.x]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm ci
+      - run: npm test
+```
+
+### Additional Links
+
+- [Testing Javascript with Kent C. Dodds](https://testingjavascript.com/)
+- [Jest](https://jestjs.io/)
+- [ts-jest](https://kulshekhar.github.io/ts-jest/)
